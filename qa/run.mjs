@@ -42,6 +42,7 @@ const T = G.SC;
   const want = { "スマホを手に持って、画面を見ながら走る": 12000, "車道を走っていて、赤信号の交差点に入る": 6000, "踏切で、遮断機が下り始めたので急いで渡る": 7000, "友だちと横に並んで走る（並んでよい標識は無い）": 3000, "お酒を1杯だけ飲んで、自転車で帰る": -1, "ヘルメットをかぶって乗る": 0 };
   const got = Object.keys(want).filter((a) => T.some((t) => t.s === a));
   check("出典の数字が書き写したまま（ながらスマホ 12,000円・信号無視 6,000円など）", got.length === 6 && got.every((a) => T.find((t) => t.s === a).f === want[a]), got.length);
+  check("「歩道を通れない」場面は年れいを書く（70歳以上・13歳未満と食いちがわない）", T.filter((t) => t.a === 1 && /標識の無い歩道を走る/.test(t.s)).every((t) => /\d+歳/.test(t.s)));
   check("ヘルメットは努力義務で、反則金を出さない", T.filter((t) => /ヘルメット/.test(t.s)).every((t) => t.a === 0 && t.f === 0 && /努力義務/.test(t.w)));
   check("出典は警察庁のページ", Object.values(G.SRC).every((u) => /^https:\/\/www\.npa\.go\.jp\/bureau\/traffic\/bicycle\//.test(u)));
 }
@@ -69,7 +70,7 @@ const T = G.SC;
   check("10日で今日の問題にほとんどの場面が出る（40以上）", seen.size >= 40, seen.size);
   { let err = ""; try { for (const k of ["2026-11-06", "2026-10-01", "2025-01-01"]) { G.dailyList(k); G.hardList(k); if (G.dayNo(k) !== 1) err = k + " #" + G.dayNo(k); } } catch (e) { err = e.message; } check("時計が第1回より前にずれていても今日の問題が作れる（番号は #1）", !err, err); }
   const snap = createHash("sha256").update(JSON.stringify([...Array(120)].map((_, n) => [G.dailyList(day(n)), G.hardList(day(n))]))).digest("hex").slice(0, 16);
-  check("はじめの120日の今日の5問・上級は前と同じ（変えると過去の日の問題が変わる）", snap === "d20f12657620f961", snap);
+  check("はじめの120日の今日の5問・上級は前と同じ（変えると過去の日の問題が変わる）", snap === "63bcfb2bcf69141b", snap);
   check("乱数は sort の比較の中で引かない", !/sort\([^)]*r\(\)/.test(gameSrc + html));
   check("Math.random は練習・とことんの並びと回の名札だけ（game.js には無い・index.html に5か所）", !/Math\.random/.test(gameSrc + dataSrc) && (html.match(/Math\.random/g) || []).length === 5, (html.match(/Math\.random/g) || []).length);
 }
@@ -143,8 +144,10 @@ try {
   await page.click("#hint"); await page.waitForTimeout(80);
   check("ヒント（○✕）：手がかりの文が出る（答えは言わない）・ヒントは1回まで", (await page.locator(".hintbox").count()) === 1 && (await page.textContent(".hintbox")).includes(T[c.q.t].h) && (await page.locator("#hint").isDisabled()) && /ヒント/.test(await page.textContent("#live")));
   await answer(page, true);
+  check("答えのあとの答え・なぜも「読む」の対象（data-a11y-say）", await page.evaluate(() => [...document.querySelectorAll(".verdict [data-a11y-say]")].some((e) => /答え：/.test(e.textContent)) && [...document.querySelectorAll(".verdict [data-a11y-say]")].some((e) => /なぜ？/.test(e.textContent))));
   check("当てると「✓ 正解」・答え・なぜ・出典のリンク・★2（ヒント）", await page.evaluate(() => { const v = document.querySelector(".verdict"); return v.textContent.includes("✓ 正解") && /答え：/.test(v.textContent) && /なぜ？/.test(v.textContent) && !!v.querySelector('a[href^="https://www.npa.go.jp/"]') && v.querySelector(".stars").getAttribute("aria-label") === "星2つ"; }) && (await page.locator(".yn button.ok").count()) === 1);
-  await page.click("#next");
+  await page.focus("#next"); await page.keyboard.press("Enter");
+  check("キーボードで「次の問題へ」を押すと、次の問題文へ移る（消えたボタンに取り残されない）", await page.evaluate(() => document.activeElement && document.activeElement.id === "ask"));
   c = await cur(page);
   await answer(page, false);
   check("はずれると「✕ ざんねん」・正しい答えに ✓、選んだ答えに ✕・★1", await page.evaluate(() => { const v = document.querySelector(".verdict"); return v.textContent.includes("✕ ざんねん") && v.classList.contains("miss") && document.querySelectorAll(".yn button.ok").length === 1 && document.querySelectorAll(".yn button.ng").length === 1 && v.querySelector(".stars").getAttribute("aria-label") === "星1つ"; }));
@@ -270,6 +273,7 @@ try {
     check("「ここで降りる」で終えた回は、古いタブの写しと合わせても戻らない", await p.evaluate((K) => { const base = { mode: "e", date: "2000-01-01", list: [], res: [{ m: 0, h: 0 }], id: "endrun" }; localStorage.setItem(K, JSON.stringify({ v: 1, tut: true, t: 9, ended: ["endrun"], runs: {} })); mem = JSON.stringify({ v: 1, tut: true, t: 5, runs: { e: base } }); const r = window.__sk.load(); mem = null; return !r.runs.e; }, KEY));
     check("きのう解き終えて結果を見ずに閉じた回も、次に開いたとき記録する", await p.evaluate((K) => { const y = window.__sk.prevDay(window.__sk.todayKey()), list = window.JRG.dailyList(y); localStorage.setItem(K, JSON.stringify({ v: 1, tut: true, t: 1, runs: { d: { mode: "d", date: y, id: "yy", list, res: list.map(() => ({ m: 0, h: 0 })), cur: null } } })); window.__sk.home(); const s = window.__sk.load(); return !!s.days[y] && !s.runs.d; }, KEY));
     check("あとからの回も、解き終えて結果を見ずに閉じたら次に開いたとき記録する", await p.evaluate((K) => { const y = window.__sk.prevDay(window.__sk.todayKey()), list = window.JRG.dailyList(y); localStorage.setItem(K, JSON.stringify({ v: 1, tut: true, t: 1, runs: { ["a:" + y]: { mode: "a", date: y, id: "ay", list, res: list.map(() => ({ m: 0, h: 0 })), cur: null } } })); window.__sk.home(); const s = window.__sk.load(); return !!s.late[y] && !s.runs["a:" + y]; }, KEY));
+    check("引き継ぎで入った変な値（数にできない ebest・seen）でもホームが出て、0として読む", await p.evaluate((K) => { localStorage.setItem(K, JSON.stringify({ v: 1, tut: true, ebest: { valueOf: 0, toString: 0 }, seen: { 1: { valueOf: 0, toString: 0 }, 2: 3 } })); try { window.__sk.home(); const s = window.__sk.load(); return !!document.getElementById("go-d") && s.ebest === 0 && s.seen[1] === 0 && s.seen[2] === 3; } catch (e) { return false; } }, KEY));
     check("こわれた日の記録（r が無い・数でない）は読むときに捨て、画面が出る", await p.evaluate((K) => { localStorage.setItem(K, JSON.stringify({ v: 1, tut: true, days: { "2026-11-07": { r: [{ m: "x" }] }, "2026-11-08": 3 }, hdays: { "2026-11-07": {} }, late: { "2026-11-06": { r: [{ m: 0, h: 0 }] } } })); try { window.__sk.home(); const s = window.__sk.load(); return !!document.getElementById("go-d") && !Object.keys(s.days).length && !Object.keys(s.hdays).length && !!s.late["2026-11-06"]; } catch (e) { return false; } }, KEY));
     await p.close(); }
 

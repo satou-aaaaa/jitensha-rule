@@ -345,14 +345,16 @@ function lateDays(s, k = todayKey()) { const out = []; let d = prevDay(k); for (
 const fresh = () => ({ v: 1, days: {}, hdays: {}, late: {}, seen: {}, one: {}, ebest: 0, runs: {}, ach: {}, kofi: {}, ended: [], tut: false, t: 0 });
 let mem = null; // 保存できない環境では、開いているあいだだけここに置く
 const isObj = (x) => x && typeof x === "object" && !Array.isArray(x);
-const okRes = (x) => isObj(x) && Number.isFinite(+x.m) && Number.isFinite(+x.h);
+// 数だけを数として読む（引き継ぎで入った変な値で例外にしない）
+const num = (x) => (typeof x === "number" && Number.isFinite(x) ? x : 0);
+const okRes = (x) => isObj(x) && typeof x.m === "number" && typeof x.h === "number" && Number.isFinite(x.m) && Number.isFinite(x.h);
 const prog = (r) => (r && Array.isArray(r.res) ? r.res.length * 10 + (r.cur ? (r.cur.h || 0) + 1 : 0) : -1);
 // 2つの記録を合わせる：日ごとの結果は先にあったほう、数は大きいほう、途中経過は同じ回なら進んだほう。片方にしか無い入れ物も残す
 function merge(a, b) {
   const [n, o] = (a.t || 0) >= (b.t || 0) ? [a, b] : [b, a], s = Object.assign(fresh(), o, n);
   for (const k of ["days", "hdays", "late", "ach", "kofi"]) s[k] = Object.assign({}, n[k], o[k]);
-  for (const k of ["seen", "one"]) { s[k] = Object.assign({}, o[k], n[k]); for (const q in o[k] || {}) s[k][q] = Math.max(+o[k][q] || 0, +(n[k] || {})[q] || 0); }
-  s.ebest = Math.max(+o.ebest || 0, +n.ebest || 0);
+  for (const k of ["seen", "one"]) { s[k] = Object.assign({}, o[k], n[k]); for (const q in o[k] || {}) s[k][q] = Math.max(num(o[k][q]), num((n[k] || {})[q])); }
+  s.ebest = Math.max(num(o.ebest), num(n.ebest));
   s.tut = !!(o.tut || n.tut);
   s.ended = [...new Set([...(Array.isArray(o.ended) ? o.ended : []), ...(Array.isArray(n.ended) ? n.ended : [])])].slice(-40);
   s.runs = Object.assign({}, o.runs, n.runs);
@@ -361,7 +363,8 @@ function merge(a, b) {
 }
 // 形のこわれた途中経過・終えた回（ended）・こわれた日の記録は捨てる（ホームを止めない・古いタブの写しで終えた回を戻さない）
 function clean(s) {
-  s = Object.assign(fresh(), isObj(s) ? s : {}); for (const k of ["days", "hdays", "late", "seen", "one", "runs", "ach", "kofi"]) if (!isObj(s[k])) s[k] = {}; s.ebest = +s.ebest || 0;
+  s = Object.assign(fresh(), isObj(s) ? s : {}); for (const k of ["days", "hdays", "late", "seen", "one", "runs", "ach", "kofi"]) if (!isObj(s[k])) s[k] = {}; s.ebest = num(s.ebest);
+  for (const k of ["seen", "one"]) for (const q in s[k]) s[k][q] = num(s[k][q]);
   s.ended = Array.isArray(s.ended) ? s.ended.filter((x) => typeof x === "string").slice(-40) : [];
   for (const m in s.runs) { const r = s.runs[m]; if (!isObj(r) || !Array.isArray(r.res) || !Array.isArray(r.list) || typeof r.date !== "string" || s.ended.includes(r.id) || !r.res.every(okRes) || !r.list.every((q) => G.valid(q))) delete s.runs[m]; }
   const rec = (x) => isObj(x) && Array.isArray(x.r) && x.r.every((r) => isObj(r) && typeof r.m === "number");
@@ -506,7 +509,7 @@ function play(key) {
     <header><button class="icon" id="back" aria-label="もどる">←</button>
       ${run.mode === "e" || run.list.length < 2 ? "" : `<div class="dots" aria-label="${i + 1}問目／${run.list.length}問">${run.list.map((_, j) => `<i class="${j < i ? "done" : j === i ? "on" : ""}"></i>`).join("")}</div>`}
       <span style="font-size:13px;color:var(--ink2)">${MODES[run.mode]} ${n}</span></header>
-    <p class="ask" id="ask" data-a11y-say>${askOf(q)}</p>
+    <p class="ask" id="ask" tabindex="-1" data-a11y-say>${askOf(q)}</p>
     <div id="board" data-a11y-say></div>
     <div class="status"><span id="st"></span>${cur.hard ? `<span>上級はヒントなし</span>` : `<button class="sub" id="hint" type="button" style="min-height:44px">ヒント</button>`}</div>
     ${run.mode === "e" ? `<button class="sub" id="quit">ここで降りる</button>` : ""}
@@ -516,6 +519,7 @@ function play(key) {
   if ($("hint")) $("hint").onclick = hint;
   if ($("quit")) $("quit").onclick = () => finish("e");
   paint();
+  if (i > 0) $("ask").focus({ preventScroll: true }); // 「次の問題へ」のボタンは消えるので、次の問題文へ移る（キーボード・読み上げ）
 }
 // 答えたあと（pk：選んだ番号）は、正解に ✓、まちがって選んだものに ✕
 function paint(pk) {
@@ -568,8 +572,8 @@ function verdict(ok, rec, fin, n1) {
   const q = cur.q, main = G.mainOf(q), t = T[main];
   const st = G.starsOf(rec);
   const body = q.k === "o"
-    ? `<p class="ans">答え：${AW[t.a]} ${fineTag(main)}</p><p class="sim"><b>なぜ？</b>${esc(t.w)}</p>`
-    : `<ul class="wl" aria-label="3つの場面の答え">${q.ts.map((x) => `<li class="${T[x].a ? "ng" : "okk"}"><b>${AW[T[x].a]}</b><span>${esc(T[x].s)}<br><small>${esc(T[x].w)}</small>${G.fineOf(x) ? `<br>${fineTag(x)}` : ""}</span></li>`).join("")}</ul>`;
+    ? `<p class="ans" data-a11y-say>答え：${AW[t.a]} ${fineTag(main)}</p><p class="sim" data-a11y-say><b>なぜ？</b>${esc(t.w)}</p>`
+    : `<ul class="wl" aria-label="3つの場面の答え" data-a11y-say>${q.ts.map((x) => `<li class="${T[x].a ? "ng" : "okk"}"><b>${AW[T[x].a]}</b><span>${esc(T[x].s)}<br><small>${esc(T[x].w)}</small>${G.fineOf(x) ? `<br>${fineTag(x)}` : ""}</span></li>`).join("")}</ul>`;
   $("after").innerHTML = `<div class="verdict${ok ? "" : " miss"}" role="status">
     <div class="hd" data-a11y-say>${ok ? "✓ 正解" : "✕ ざんねん"} ${cur.mode === "e" ? "" : starStr(st)}</div>
     ${cur.mode === "e" ? `<p class="note">${ok ? `続けて ${n1}問` : "続けての数は0から"}</p>` : ""}
@@ -658,7 +662,7 @@ function dex() {
 function scene(id) {
   const t = T[id];
   show(`<header><button class="icon" id="back" aria-label="ルール帳へ">←</button><h1>ルール帳<small>${esc(t.g)}</small></h1><span></span></header>
-    <div class="detail"><p class="big" data-a11y-say>${esc(t.s)}</p><p class="ans">${AW[t.a]} ${fineTag(id)}</p><p class="sim"><b>なぜ？</b>${esc(t.w)}</p>
+    <div class="detail"><p class="big" data-a11y-say>${esc(t.s)}</p><p class="ans" data-a11y-say>${AW[t.a]} ${fineTag(id)}</p><p class="sim" data-a11y-say><b>なぜ？</b>${esc(t.w)}</p>
     <p class="note">${SRCL}${G.fineOf(id) ? "・反則金は16歳以上（2026年4月から）" : ""}</p></div>
     <button class="main alt" id="again">この場面から練習する</button>
     ${footer()}`);
