@@ -72,7 +72,7 @@ const T = G.SC;
   const snap = createHash("sha256").update(JSON.stringify([...Array(120)].map((_, n) => [G.dailyList(day(n)), G.hardList(day(n))]))).digest("hex").slice(0, 16);
   check("はじめの120日の今日の5問・上級は前と同じ（変えると過去の日の問題が変わる）", snap === "63bcfb2bcf69141b", snap);
   check("乱数は sort の比較の中で引かない", !/sort\([^)]*r\(\)/.test(gameSrc + html));
-  check("Math.random は練習・とことんの並びと回の名札だけ（game.js には無い・index.html に5か所）", !/Math\.random/.test(gameSrc + dataSrc) && (html.match(/Math\.random/g) || []).length === 5, (html.match(/Math\.random/g) || []).length);
+  check("Math.random は練習・とことんの並びと回の名札だけ（game.js には無い・index.html に6か所）", !/Math\.random/.test(gameSrc + dataSrc) && (html.match(/Math\.random/g) || []).length === 6, (html.match(/Math\.random/g) || []).length);
 }
 // 3. とことん・練習（何百回）
 {
@@ -219,6 +219,19 @@ try {
   check("ルール帳の場面：答え・なぜ・反則金・出典・「この場面から練習する」", (await page.textContent(".detail .ans")).includes(T[fm].a ? "だめ" : "してよい") && (!G.fineOf(fm) || (await page.textContent(".detail")).includes(G.fineOf(fm))) && (await page.locator('.detail a[href^="https://www.npa.go.jp/"]').count()) === 1 && (await page.locator("#again").count()) === 1);
   await page.click("#again");
   check("ルール帳から練習：その場面が1問目に出る", G.mainOf((await cur(page)).q) === fm);
+  // おさらい（2026-11-07）：まちがえた場面に印が付き、練習の「おさらい」で出る。一度で当てると印が外れる
+  await page.evaluate(() => { window.__sk.save((x) => { x.miss = { 3: [1, 5], 9: [1, 5], 20: [0, 5] }; }); window.__sk.practiceMenu(); });
+  check("おさらい：練習の画面にまちがえた場面の数が出る", (await page.textContent("#miss")).includes("2場面"));
+  await page.click("#miss");
+  c = await cur(page);
+  check("おさらい：まちがえた場面だけを「してよい？だめ？」で出す", c.mode === "p" && c.q.k === "o" && [3, 9].includes(c.q.t) && (await page.evaluate(() => window.__sk.load().runs.p.list.length)) === 2);
+  const m1 = c.q.t; await answer(page, true);
+  check("おさらい：一度で当てると印が外れる", JSON.stringify(await page.evaluate(() => window.__sk.missIds(window.__sk.load()))) === JSON.stringify([m1 === 3 ? 9 : 3]));
+  await page.click("#next"); c = await cur(page); await answer(page, false);
+  check("おさらい：はずれた場面は印が残る", (await page.evaluate(() => window.__sk.missIds(window.__sk.load()))).includes(c.q.t));
+  check("おさらい：ふだんの問題でまちがえても印が付く", await page.evaluate(() => { const s = window.__sk.load(); return Object.values(s.miss).every((x) => Array.isArray(x) && typeof x[1] === "number"); }));
+  check("おさらい：古いタブの写しと合わせても、あとで付け外ししたほうが残る", await page.evaluate((i) => { const s = window.__sk.load(), old = JSON.parse(JSON.stringify(s)); old.miss[i] = [1, 1]; old.t = s.t + 9e9; const m = window.__sk.clean(window.__sk.merge(window.__sk.clean(old), window.__sk.clean(s))); return !window.__sk.missIds(m).includes(i); }, m1));
+  check("おさらい：こわれた値は読み捨てる", await page.evaluate(() => JSON.stringify(window.__sk.missIds(window.__sk.clean({ v: 1, miss: { 999: [1, 1], 2: "x", 4: [1, 3], 5: [2, 1] } }))) === "[4]"));
   await page.close();
 
   // あとから（取りこぼした日）・カレンダー
@@ -293,7 +306,7 @@ try {
     await p.close(); }
 
   // 引き継ぎコード（shared-workflows template/qa/transfer-check.mjs）
-  { const sample = { [KEY]: JSON.stringify({ v: 1, tut: true, days: { "2026-11-07": { r: [{ m: 0, h: 0 }] } }, hdays: {}, late: {}, seen: { 0: 1, 5: 2 }, one: { 0: 1 }, ebest: 4, runs: {}, ach: {}, kofi: {}, t: 1 }) };
+  { const sample = { [KEY]: JSON.stringify({ v: 1, tut: true, days: { "2026-11-07": { r: [{ m: 0, h: 0 }] } }, hdays: {}, late: {}, seen: { 0: 1, 5: 2 }, one: { 0: 1 }, ebest: 4, runs: {}, ach: {}, kofi: {}, miss: { 3: [1, 5] }, t: 1 }) };
     await checkTransfer({ browser, url, game: "jitensha-rule", sample, check, open: async (page) => { await page.evaluate(() => { const d = document.getElementById("howto"); if (d.open) d.close(); }); } }); }
 } catch (e) {
   check("QA の操作が最後まで完了する", false, e.message.split("\n")[0]);
