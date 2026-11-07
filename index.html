@@ -342,7 +342,7 @@ function lateDays(s, k = todayKey()) { const out = []; let d = prevDay(k); for (
 
 // ---- 記録（この端末の localStorage だけ）----
 // days・hdays・late：日ごとの結果 {r:[{m,h}]}。seen：場面ごとに出会った回数・one：一度で当てた回数。runs：モードごとの途中経過
-const fresh = () => ({ v: 1, days: {}, hdays: {}, late: {}, seen: {}, one: {}, ebest: 0, runs: {}, ach: {}, kofi: {}, ended: [], tut: false, t: 0 });
+const fresh = () => ({ v: 1, days: {}, hdays: {}, late: {}, seen: {}, one: {}, ebest: 0, runs: {}, ach: {}, kofi: {}, miss: {}, ended: [], tut: false, t: 0 });
 let mem = null; // 保存できない環境では、開いているあいだだけここに置く
 const isObj = (x) => x && typeof x === "object" && !Array.isArray(x);
 // 数だけを数として読む（引き継ぎで入った変な値で例外にしない）
@@ -356,6 +356,8 @@ function merge(a, b) {
   for (const k of ["seen", "one"]) { s[k] = Object.assign({}, o[k], n[k]); for (const q in o[k] || {}) s[k][q] = Math.max(num(o[k][q]), num((n[k] || {})[q])); }
   s.ebest = Math.max(num(o.ebest), num(n.ebest));
   s.tut = !!(o.tut || n.tut);
+  // おさらいの印：場面ごとに、あとで付け外ししたほう（[まちがえた 1/当てた 0, 時刻]）を残す
+  s.miss = Object.assign({}, o.miss, n.miss); for (const q in o.miss || {}) { const x = o.miss[q], y = (n.miss || {})[q]; if (Array.isArray(x) && Array.isArray(y) && num(x[1]) > num(y[1])) s.miss[q] = x; }
   s.ended = [...new Set([...(Array.isArray(o.ended) ? o.ended : []), ...(Array.isArray(n.ended) ? n.ended : [])])].slice(-40);
   s.runs = Object.assign({}, o.runs, n.runs);
   for (const m in o.runs || {}) { const x = o.runs[m], y = (n.runs || {})[m]; if (x && y && x.id === y.id && prog(x) > prog(y)) s.runs[m] = x; }
@@ -363,7 +365,8 @@ function merge(a, b) {
 }
 // 形のこわれた途中経過・終えた回（ended）・こわれた日の記録は捨てる（ホームを止めない・古いタブの写しで終えた回を戻さない）
 function clean(s) {
-  s = Object.assign(fresh(), isObj(s) ? s : {}); for (const k of ["days", "hdays", "late", "seen", "one", "runs", "ach", "kofi"]) if (!isObj(s[k])) s[k] = {}; s.ebest = num(s.ebest);
+  s = Object.assign(fresh(), isObj(s) ? s : {}); for (const k of ["days", "hdays", "late", "seen", "one", "runs", "ach", "kofi", "miss"]) if (!isObj(s[k])) s[k] = {}; s.ebest = num(s.ebest);
+  for (const q in s.miss) { const x = s.miss[q]; if (!T[+q] || !Array.isArray(x) || (x[0] !== 0 && x[0] !== 1) || typeof x[1] !== "number") delete s.miss[q]; }
   for (const k of ["seen", "one"]) for (const q in s[k]) s[k][q] = num(s[k][q]);
   s.ended = Array.isArray(s.ended) ? s.ended.filter((x) => typeof x === "string").slice(-40) : [];
   for (const m in s.runs) { const r = s.runs[m]; if (!isObj(r) || !Array.isArray(r.res) || !Array.isArray(r.list) || typeof r.date !== "string" || s.ended.includes(r.id) || !r.res.every(okRes) || !r.list.every((q) => G.valid(q))) delete s.runs[m]; }
@@ -454,14 +457,17 @@ function home() {
   $("go-cal").onclick = () => cal();
   if (!s.tut) openHow();
 }
+const missIds = (s) => Object.keys(s.miss).map(Number).filter((t) => T[t] && s.miss[t][0] === 1);
 function practiceMenu() {
-  const s = load(), met = metSet(s);
+  const s = load(), met = metSet(s), ms = missIds(s);
   show(`<header><button class="icon" id="back" aria-label="もどる">←</button><h1>練習<small>何度でも・今日の記録には入りません</small></h1><span></span></header>
     <p class="note" data-a11y-say>なかまを選ぶと、その場面を中心に5問出ます。</p>
+    ${ms.length ? `<button class="main" id="miss">まちがえた場面のおさらい<small>${ms.length}場面・一度で当てると消えます</small></button>` : `<p class="note">まちがえた場面は「おさらい」でもう一度解けます（いまはありません）。</p>`}
     <button class="main alt" id="rand">全部のなかまから</button>
     <div class="res">${G.GROUPS.map((g) => { const L = T.filter((t) => t.g === g); return `<button data-g="${esc(g)}"><span>${esc(g)}<small>出会った ${L.filter((t) => met.has(t.id)).length}/${L.length}</small></span><span aria-hidden="true">▶</span></button>`; }).join("")}</div>${footer()}`);
   $("back").onclick = home;
   $("rand").onclick = () => startRun("p", "");
+  if ($("miss")) $("miss").onclick = () => startRun("p", "miss");
   document.querySelectorAll(".res button").forEach((b) => (b.onclick = () => startRun("p", b.dataset.g)));
 }
 // 練習の opt：なかまの名前（"" は全部）か、ルール帳から来た場面の番号
@@ -475,6 +481,7 @@ function startRun(mode, opt) {
     let list;
     if (mode === "d" || mode === "h") list = listOf(mode, k);
     else if (mode === "a") list = G.dailyList(opt);
+    else if (mode === "p" && opt === "miss") list = G.reviewList(Math.random, missIds(s));
     else if (mode === "p") list = typeof opt === "number" && T[opt] ? G.practiceList(Math.random, T[opt].g, opt) : G.practiceList(Math.random, G.GROUPS.includes(opt) ? opt : "");
     else { if (s.runs.e && s.runs.e.res && s.runs.e.res.length < s.runs.e.list.length) return; list = G.endlessList(Math.random, s.elast, 0); }
     if (!list.length) { ok = false; return; }
@@ -561,6 +568,8 @@ function pick(j) {
     for (const t of G.idsOf(q)) s.seen[t] = (+s.seen[t] || 0) + 1;
     const main = G.mainOf(q);
     if (one(rec)) s.one[main] = (+s.one[main] || 0) + 1;
+    // おさらい：まちがえた場面に印を付け、一度で当てたら外す
+    if (!ok) s.miss[main] = [1, Date.now()]; else if (one(rec) && s.miss[main]) s.miss[main] = [0, Date.now()];
     if (r.mode === "e") { r.n1 = ok ? (r.n1 || 0) + 1 : 0; r.best = Math.max(r.best || 0, r.n1); s.ebest = Math.max(s.ebest, r.n1); s.elast = main; n1 = r.n1; }
     fin = r.mode !== "e" && r.res.length >= r.list.length;
   });
@@ -694,7 +703,7 @@ function cal(ym) {
   document.querySelectorAll(".cal button").forEach((b) => (b.onclick = () => startRun("a", b.dataset.k)));
 }
 
-window.__sk = { G, load, save, achList, nextAch, lateDays, todayKey, prevDay, shareText, streak, cur: () => cur, pick: (j) => pick(j), hint: () => hint(), play: (k) => play(k), home: () => home(), startRun: (m, o) => startRun(m, o), answer: () => G.answerOf(cur.q) };
+window.__sk = { G, load, save, merge, clean, missIds, practiceMenu: () => practiceMenu(), achList, nextAch, lateDays, todayKey, prevDay, shareText, streak, cur: () => cur, pick: (j) => pick(j), hint: () => hint(), play: (k) => play(k), home: () => home(), startRun: (m, o) => startRun(m, o), answer: () => G.answerOf(cur.q) };
 home();
 if ("serviceWorker" in navigator && location.protocol === "https:" && /github\.io$/.test(location.hostname)) navigator.serviceWorker.register("sw.js").catch(() => {});
 </script>

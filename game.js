@@ -118,9 +118,14 @@
     ids = ids.slice(0, 5);
     return ids.map((t, j) => make(KINDS[j], t, r, all, new Set()));
   }
+  // おさらい：まちがえた場面（ids）を、してよい？だめ？の形で毎回ちがう順に5問まで
+  function reviewList(r, ids) {
+    const ok = [...new Set(ids)].filter((i) => Number.isInteger(i) && SC[i]);
+    return shuffle(ok, r).slice(0, 5).map((t) => make("o", t, r, [], new Set()));
+  }
   // 反則金の言い方（画面と検査で同じものを使う）
   const fineOf = (t) => (SC[t].f > 0 ? `反則金 ${SC[t].f.toLocaleString("ja-JP")}円` : SC[t].f < 0 ? "赤切符（刑事手続）" : "");
 
-  const api = { SC, EPOCH, DAILY_MAX_ID, KINDS, EKINDS, HARD_N, GROUPS: D.GROUPS, SRC: D.SRC, seedOf, rng, shuffle, dayNo, idsOf, answerOf, mainOf, valid, dailyList, hardList, starsOf, endlessList, practiceList, fineOf };
+  const api = { SC, EPOCH, DAILY_MAX_ID, KINDS, EKINDS, HARD_N, GROUPS: D.GROUPS, SRC: D.SRC, seedOf, rng, shuffle, dayNo, idsOf, answerOf, mainOf, valid, dailyList, hardList, starsOf, endlessList, practiceList, reviewList, fineOf };
   if (typeof module !== "undefined") module.exports = api; else window.JRG = api;
 })();
