@@ -315,6 +315,13 @@ try {
   // 引き継ぎコード（shared-workflows template/qa/transfer-check.mjs）
   { const sample = { [KEY]: JSON.stringify({ v: 1, tut: true, days: { "2026-11-07": { r: [{ m: 0, h: 0 }] } }, hdays: {}, late: {}, seen: { 0: 1, 5: 2 }, one: { 0: 1 }, ebest: 4, runs: {}, ach: {}, kofi: {}, miss: { 3: [1, 5] }, t: 1 }) };
     await checkTransfer({ browser, url, game: "jitensha-rule", sample, check, open: async (page) => { await page.evaluate(() => { const d = document.getElementById("howto"); if (d.open) d.close(); }); } }); }
+  // 知らせ（.toast）が出ているあいだも、その下のボタンを押せる（2026-11-17 全ゲームの点検。pointer-events:none）
+  {
+    const q = await newPage(); await closeHow(q);
+    const r = await q.evaluate(() => { const d = document.createElement("div"); d.className = "toast"; d.textContent = "知らせ"; document.body.appendChild(d); const b = d.getBoundingClientRect(), el = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2); const v = [getComputedStyle(d).pointerEvents, !!el && !d.contains(el)]; d.remove(); return v; });
+    check("知らせ（.toast）は押しても下のボタンに届く（pointer-events:none）", r[0] === "none" && r[1], r.join(","));
+    await q.context().close();
+  }
 } catch (e) {
   check("QA の操作が最後まで完了する", false, e.message.split("\n")[0]);
 } finally {
